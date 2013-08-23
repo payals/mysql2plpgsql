@@ -4,11 +4,45 @@ use warnings;
 use strict;
 
 my $delimiters;
+my %type_convert = (
+      'TINYINT' => 'SMALLINT',
+      'SMALLINT' => 'SMALLINT',
+      'MEDIUMINT' => 'INTEGER',
+      'BIGINT' => 'BIGINT',
+      'TINYINT UNSIGNED' => 'SMALLINT',
+      'SMALLINT UNSIGNED' => 'INTEGER',
+      'MEDIUMINT UNSIGNED' => 'INTEGER',
+      'INT UNSIGNED' => 'BIGINT',
+      'BIGINT UNSIGNED' => 'NUMERIC(20)',
+      'FLOAT' => 'REAL',
+      'FLOAT UNSIGNED' => 'REAL',
+      'DOUBLE' => 'DOUBLE PRECISION',
+      'BOOLEAN' => 'BOOLEAN',
+      'TINYTEXT' => 'TEXT',
+      'TEXT' => 'TEXT',
+      'MEDIUMTEXT' => 'TEXT',
+      'LONGTEXT' => 'TEXT',
+      'BINARY(n)' => 'BYTEA',
+      'VARBINARY(n)' => 'BYTEA',
+      'TINYBLOB' => 'BYTEA',
+      'BLOB' => 'BYTEA',
+      'MEDIUMBLOB' => 'BYTEA',
+      'LONGBLOB' => 'BYTEA',
+      'ZEROFILL' => 'na',
+      'DATE' => 'DATE',
+      'TIME' => 'TIME [WITHOUT TIME ZONE]',
+      'DATETIME' => 'TIMESTAMP [WITHOUT TIME ZONE]',
+      'TIMESTAMP' => 'TIMESTAMP [WITHOUT TIME ZONE]',
+   );
 
  open (MYFILE, 'func.sql') || die "File not found";
  while (<MYFILE>) {
  	chomp;
-	 
+ 	
+	# Remove empty lines
+	if ($_ =~ /^\s*$/) {
+	  next;
+	}
 	# Checking for comments
 	s/\#/--/i;
 
@@ -16,18 +50,17 @@ my $delimiters;
 	s/"/'/g;
 	s/`/"/g;
 
-	# Data type conversion table using 2-D array
-	my @values = split();
-
-	foreach my $val (@values) {
-	  #####print "$val\n";
-	  if ($val =~ /\w/i && $val !~ /\w\(\)/i)
-	  { 
-	      my $res = convert_type($val); #########print "val = $val and result = $res\n";
-	      if ($_ =~ /$val/i)
-	      {
-		    s/$val/$res/ig;   #########print "new val = $val\n line = $_";
-	      }
+	# Data type conversion
+	my @words = split(' ', $_);
+	
+	foreach my $val (@words) {
+	  foreach my $key ( keys %type_convert ) {
+	    $val = uc($val);
+	    if ($val eq $key) {
+	    print "Found $val\n";
+	      my $newval = $type_convert{$key};
+	      $_ =~ s/$val/$newval/i;
+	    }
 	  }
 	}
 	
@@ -67,10 +100,10 @@ my $delimiters;
  sub convert_type
  {
 
-    my $word = $_[0];  #########print "word is $word\n";
+    my $word = $_[0];  print "word is $word\n";
     open (FILE, 'type_conversion.txt') || die "File not found";
     while( my $line = <FILE> ){
-	chomp;
+	chomp; 
 	if( $line =~ /$word/i)
 	{ 
 		#if(/\s*(.*)/i)
