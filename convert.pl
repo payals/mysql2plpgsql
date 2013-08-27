@@ -4,6 +4,15 @@ use warnings;
 use strict;
 
 my $delimiters;
+my @lines;
+my $total_lines;
+my @output;
+my $plsql_type;				# 0 for function, 1 for procedure
+my $add_return = 0;
+my %variables_to_be_declared;
+my $no_declare = -1;
+my $declare_at = -1;
+my $return_param;
 my %type_convert = (
       'TINYINT' => 'SMALLINT',
       'SMALLINT' => 'SMALLINT',
@@ -12,6 +21,7 @@ my %type_convert = (
       'TINYINT UNSIGNED' => 'SMALLINT',
       'SMALLINT UNSIGNED' => 'INTEGER',
       'MEDIUMINT UNSIGNED' => 'INTEGER',
+      'INT' => 'INTEGER',
       'INT UNSIGNED' => 'BIGINT',
       'BIGINT UNSIGNED' => 'NUMERIC(20)',
       'FLOAT' => 'REAL',
@@ -35,85 +45,124 @@ my %type_convert = (
       'TIMESTAMP' => 'TIMESTAMP [WITHOUT TIME ZONE]',
    );
 
+ 
+ sub plsql_type() {
+  foreach my $count(0 .. $total_lines-1) {
+    if ($lines[$count] =~ m/create .*function/i) {
+      $plsql_type = 0;
+    } elsif ($lines[$count] =~ m/create .*procedure/i) {
+	$plsql_type = 1;
+      }
+  }
+  #print "$plsql_type\n";
+ }
+ 
+ sub change_comments {
+  foreach my $count(0 .. $total_lines-1) {
+    $lines[$count] =~ s/\#/--/; 
+  }
+ }
+ 
+ sub change_quotes {
+  foreach my $count(0 .. $total_lines-1) {
+    $lines[$count] =~ s/"/'/g;
+    $lines[$count] =~ s/`/"/g; 
+  }
+ }
+ 
+ sub convert_datatype {
+  foreach my $count(0 .. $total_lines-1) {
+    my @words = split(' ', $lines[$count]);
+    
+    foreach my $word (@words) {
+      $word =~ s/\s+|,|\(|\)|;//i;
+      foreach my $key (keys %type_convert) {
+	#print "$word\n";
+	if((uc($word) eq $key)) {
+	  #print "$word and $type_convert{$key}\n";
+	  my $newval = $type_convert{$key};			 #print "$word\n";	
+	  if($lines[$count] !~ m/$newval/){ 
+	    $lines[$count] =~ s/$word/$newval/ig;
+	  }
+	}
+      }
+    }
+  }
+ }
+ 
+ sub parse_args { 
+  foreach my $count(0 .. $total_lines-1) {
+    if($lines[$count] =~ m/create.*\(\s*\)/i) {
+      next;
+    }
+    elsif($lines[$count] =~ m/create.*\((.*)\)/i) { 
+      my @params = split(',', $1);
+      
+      foreach my $parameter (@params) {
+	my @param_parts = split(' ', $parameter);
+	
+	for (my $i = 0; $i <= $#param_parts; ++$i) {
+	  my $part = $param_parts[$i];
+ 	  if(uc($part) eq 'IN') {#print "$part\n";
+ 	    $lines[$count] =~ s/$part\s/ /i;
+ 	  }
+ 	  if(uc($part) eq 'OUT') {
+ 	    $variables_to_be_declared{$param_parts[$i + 2]} = $param_parts[$i + 1];
+#  	    for my $key (keys %hash) {
+# 	      print "$key\t$hash{$key}\n";
+# 	    }
+ 	  }
+	}
+      }
+    }
+  }
+ }
+ 
+ sub add_declare {
+  for (my $i = 0; $i <= $#lines; ++$i) {
+    if ($lines[$i] =~ m/begin/i) {
+      if ($lines[$i - 1]
+    }
+  }
+ }
+ 
+ sub add_declare_params {
+ 
+ }
+ 
  open (MYFILE, 'func.sql') || die "File not found";
+ print "\n----------------\nOriginal: \n----------------\n";
  while (<MYFILE>) {
  	chomp;
  	
-	# Remove empty lines
-	if ($_ =~ /^\s*$/) {
-	  next;
-	}
-	# Checking for comments
-	s/\#/--/i;
-
-	# Change all double quotes to single for strings, and accent marks to double quotes for system identifiers
-	s/"/'/g;
-	s/`/"/g;
-
-	# Data type conversion
-	my @words = split(' ', $_);
-	
-	foreach my $val (@words) {
-	  foreach my $key ( keys %type_convert ) {
-	    $val = uc($val);
-	    if ($val eq $key) {
-	    print "Found $val\n";
-	      my $newval = $type_convert{$key};
-	      $_ =~ s/$val/$newval/i;
-	    }
-	  }
+ 	# Ignore rest of the file
+ 	if ( $_ eq '#ignore'){
+	  last;
 	}
 	
-	# Remove keyword Delimeter from MySQL functions and extract the actual delimiter
-	if ($_ =~ m/delimiter\s*(.*)/i)
-	{
-	  $delimiters = $1;
-	  $_ =~ s/.*//i;
-	}
+	push(@lines, $_);
 	
-	# Remove keyword procedure from MySQL functions
-	$_ =~ s/procedure/function/i;
-	
-	# Change to LANGUAGE plpgsql
-	s/^\s*language\s*sql/ LANGUAGE plpgsql/i;
-
- 	# Remove lines with just a semi-colon
- 	if ($_ =~ m/end\s*;|end\s*/i)
- 	{
-	  s/end;|end\s*.*/end\n$delimiters;/i;
-	  
-	}
-
-	# Remove lines with empty semicolon and append semicolon to previous line
- 	#if (($_ !~ /^\s*\;$/) && ($_ !~ /^\s*$delimiters$/) ) 
-	#{
-	# Add the 'AS' clause
-	if(m/begin/i)
-	{
-		print "AS $delimiters \n";
-	}
 	print "$_\n";
-	#}
+ 	
  }
  close (MYFILE);
- 
- sub convert_type
- {
+ 	
+ $total_lines = @lines;
 
-    my $word = $_[0];  print "word is $word\n";
-    open (FILE, 'type_conversion.txt') || die "File not found";
-    while( my $line = <FILE> ){
-	chomp; 
-	if( $line =~ /$word/i)
-	{ 
-		#if(/\s*(.*)/i)
-		#{
-		my @pg_type = split(' - ', $line);
-		return $pg_type[1];
-		#}
-	}
-    }
-    return $word;
-    close (FILE);
- 
- }
+print "\n----------------\nConverted: \n----------------\n";
+
+plsql_type();
+change_comments();
+change_quotes();
+convert_datatype();
+
+# if procedure
+if ($plsql_type) {
+  parse_args();
+  add_declare();
+  add_declare_params();
+}
+
+foreach my $count (0 .. $total_lines-1) {
+  print "$lines[$count]\n";
+}
