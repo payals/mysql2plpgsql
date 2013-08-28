@@ -3,7 +3,7 @@
 use warnings;
 use strict;
 
-my @newline_keywords = ("CREATE", "RETURNS", "LANGUAGE", "AS", "DECLARE", "BEGIN", "END");
+my @newline_keywords = ("CREATE", "RETURNS", "RETURN", "LANGUAGE", "AS", "DECLARE", "BEGIN", "END");
 my $delimiters;
 my @lines;
 my $total_lines;
@@ -75,10 +75,10 @@ sub read_file {
 }
 
 sub structure_lines {
-  for (my $i = 0; $i <= $#lines; ++$i) {
+  for ( my $i = 0; $i <= $#lines; ++$i) { # print "$line\n";
     foreach my $keyword(@newline_keywords) {
-      if ($lines[$i] =~ m/$keyword/i) {
-	if ($lines[$i] =! m/^$keyword.*/i) {
+      if ($lines[$i] =~ m/^$keyword|\s+$keyword/i) { # print "TEST - $lines[$i]\n";
+	if (uc($lines[$i]) !~ m/^$keyword.*/i) { # print "WORD - $keyword in LINE - $lines[$i]\n";
 	  $lines[$i] =~ s/($keyword.*)//i;
 	  splice (@lines, $i + 1, 0, $1);
 	  $total_lines += 1;
@@ -284,8 +284,8 @@ sub output {
 }
 
 read_file();
+structure_lines();
 remove_empty();
-#structure_lines();
 remove_delimiter();
 plsql_type();
 change_comments();
