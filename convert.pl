@@ -10,6 +10,7 @@ my @output;
 my $plsql_type;				# 0 for function, 1 for procedure
 my $add_return = 0;
 my %variables_to_be_declared;
+my $inout;
 my $no_declare = -1;
 my $declare_at = -1;
 my $return_param;
@@ -45,6 +46,15 @@ my %type_convert = (
       'TIMESTAMP' => 'TIMESTAMP [WITHOUT TIME ZONE]',
    );
 
+ sub remove_empty {
+  for (my $i = 0; $i <= $#lines; ++$i) {
+    if ($lines[$i] =~ m/^\s*$/) { #print "$i initial length = $#lines\n";
+      splice(@lines, $i, 1); #print "$lines[2] and length is now $#lines\n";
+      $total_lines -= 1;
+      $i--;
+    }
+  }
+ }
  
  sub plsql_type() {
   foreach my $count(0 .. $total_lines-1) {
@@ -108,6 +118,16 @@ my %type_convert = (
  	  }
  	  if(uc($part) eq 'OUT') {
  	    $variables_to_be_declared{$param_parts[$i + 2]} = $param_parts[$i + 1];
+ 	    $lines[$count] =~ s/$parameter//i;
+ 	    $lines[$count] =~ s/,\s*,/,/i;
+#  	    for my $key (keys %hash) {
+# 	      print "$key\t$hash{$key}\n";
+# 	    }
+ 	  }
+ 	  if(uc($part) eq 'INOUT') {
+	    $inout = 1;
+ 	    $variables_to_be_declared{$param_parts[$i + 2]} = $param_parts[$i + 1];
+ 	    $lines[$count] =~ s/$part\s/ /i;
 #  	    for my $key (keys %hash) {
 # 	      print "$key\t$hash{$key}\n";
 # 	    }
@@ -120,14 +140,33 @@ my %type_convert = (
  
  sub add_declare {
   for (my $i = 0; $i <= $#lines; ++$i) {
-    if ($lines[$i] =~ m/begin/i) {
-      if ($lines[$i - 1]
+    if ($lines[$i] =~ m/create/i) {
+      if ($lines[$i + 1] !~ m/declare/i) {
+	splice(@lines, $i + 1, 0, 'DECLARE');
+	$total_lines += 1;
+	return;
+      }
     }
   }
  }
  
  sub add_declare_params {
- 
+  for (my $i = 0; $i <= $#lines; ++$i) {
+    if (($lines[$i] =~ m/declare/i) && (!$inout)) {
+      foreach my $key (keys %variables_to_be_declared) {
+	splice(@lines, $i + 1, 0, "\t" . $variables_to_be_declared{$key} . "\t" . $key . ";");
+	$total_lines += 1;
+      }
+    }
+    if ($lines[$i] =~ m/end/i) {
+      if ($lines[$i - 1] !~ m/return/i) {
+	foreach my $key (keys %variables_to_be_declared) {
+	  splice(@lines, $i, 0, "RETURN " . $variables_to_be_declared{$key} . ";");
+	  $total_lines += 1;
+	}
+      }
+    }
+  }
  }
  
  open (MYFILE, 'func.sql') || die "File not found";
@@ -151,6 +190,7 @@ my %type_convert = (
 
 print "\n----------------\nConverted: \n----------------\n";
 
+remove_empty();
 plsql_type();
 change_comments();
 change_quotes();
