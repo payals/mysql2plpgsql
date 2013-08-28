@@ -4,6 +4,10 @@ use warnings;
 use strict;
 
 my @newline_keywords = ("CREATE", "RETURNS", "RETURN", "LANGUAGE", "AS", "DECLARE", "BEGIN", "END");
+my %ignore_keywords = (
+      'DETERMINISTIC' => 1, 
+      'SQL SECURITY DEFINER' => 1,
+  );
 my $delimiters;
 my @lines;
 my $total_lines;
@@ -47,6 +51,7 @@ my %type_convert = (
       'TIMESTAMP' => 'TIMESTAMP [WITHOUT TIME ZONE]',
   );
 
+# Reads each line of file into array @lines
 sub read_file {
   open (MYFILE, 'func.sql') || die "File not found";
   print "\n----------------\nOriginal: \n----------------\n";
@@ -74,8 +79,14 @@ sub read_file {
   $total_lines = @lines;
 }
 
+# Converts lines to expected format for further conversion. Basically adjusts \n positions
 sub structure_lines {
   for ( my $i = 0; $i <= $#lines; ++$i) { # print "$line\n";
+    foreach my $key (keys %ignore_keywords) {
+      if ($lines[$i] =~ m/($key)/i) { 
+	    $lines[$i] =~ s/$1//i;
+      }
+    }
     foreach my $keyword(@newline_keywords) {
       if ($lines[$i] =~ m/^$keyword|\s+$keyword/i) { # print "TEST - $lines[$i]\n";
 	if (uc($lines[$i]) !~ m/^$keyword.*/i) { # print "WORD - $keyword in LINE - $lines[$i]\n";
@@ -88,6 +99,7 @@ sub structure_lines {
   }
 }
 
+# Removes empty lines. No empty lines help in assuming definite positions of before/after keywords in the array for conditions
 sub remove_empty {
   for (my $i = 0; $i <= $#lines; ++$i) {
     if ($lines[$i] =~ m/^\s*$/) { #print "$i initial length = $#lines\n";
@@ -98,6 +110,7 @@ sub remove_empty {
   }
 }
 
+# Removes the delimiter keyword and extracts the actual delimiter to append it to plpgsql where expected
 sub remove_delimiter {
   for (my $i = 0; $i <= $#lines; ++$i) {
     if ($lines[$i] =~ m/delimiter\s*(.*)/i) {
@@ -109,6 +122,7 @@ sub remove_delimiter {
   }
 }
 
+# Determines if the mysql block is a function or a stored procedure. If it is a procedure, then additional functions are needed for conversion.
 sub plsql_type() {
   foreach my $count(0 .. $total_lines-1) {
     if ($lines[$count] =~ m/create .*function/i) {
@@ -121,12 +135,14 @@ sub plsql_type() {
   #print "$plsql_type\n";
 }
 
+# Name says it all, changes # to --
 sub change_comments {
   foreach my $count(0 .. $total_lines-1) {
     $lines[$count] =~ s/\#/--/; 
   }
 }
 
+# Again, as the name says, converts " to ' and ` to " as accepted by postgres
 sub change_quotes {
   foreach my $count(0 .. $total_lines-1) {
     $lines[$count] =~ s/"/'/g;
@@ -134,6 +150,9 @@ sub change_quotes {
   }
 }
 
+# Divides each line into words and compares each word with the hash of keywords. Not very bright. 
+# TODO: Only look in areas where keywords might be present (Beginning, with DECLARE)
+# TODO: Has a bug where recursive nature of s// changes substring if it matches in hash table first (SMALLINT after INT will change to SMALLINTEGER) Working on it
 sub convert_datatype {
   foreach my $count(0 .. $total_lines-1) {
     my @words = split(' ', $lines[$count]);
@@ -154,6 +173,7 @@ sub convert_datatype {
   }
 }
 
+# If stored procedure with IN, OUT and INOUT parameters, parses them and adds to plpgsql as required
 sub parse_args { 
   foreach my $count(0 .. $total_lines-1) {
     if($lines[$count] =~ m/create.*\(\s*\)/i) {
@@ -192,6 +212,9 @@ sub parse_args {
   }
 }
 
+# Adds declare if not already present in stored procedures
+# TODO: Add it only if not previously there and OUT is present, else let it be
+# TODO: Remove individual DECLARE for every param and make a single one before BEGIN with all those params. Could use %variables_to_be_declared hash table for this.
 sub add_declare {
   for (my $i = 0; $i <= $#lines; ++$i) {
     if ($lines[$i] =~ m/create/i) {
@@ -204,6 +227,7 @@ sub add_declare {
   }
 }
 
+# Removes the OUT parameters from argument part and adds them to the DECLARE section in case of stored procedure conversion
 sub add_declare_params {
   for (my $i = 0; $i <= $#lines; ++$i) {
     if (($lines[$i] =~ m/declare/i) && (!$inout)) {
@@ -223,6 +247,7 @@ sub add_declare_params {
   }
 }
 
+# Checks to see if return is already present or adds it when OUT parameter is removed in stored procedure. The OUT parameter type is returned
 sub check_return {
   foreach my $count (0 .. $total_lines-1) {
     if ($lines[$count] =~ m/create/i) {
@@ -237,6 +262,7 @@ sub check_return {
   }
 }
 
+# Checks and adds LANGUAGE plpgsql if not already present
 sub check_language {
   foreach my $count (0 .. $total_lines-1) {
     if ($lines[$count] =~ m/returns/i) {
@@ -253,6 +279,7 @@ sub check_language {
   }
 }
 
+# Checks for AS <delimiter> 
 sub check_as {
   foreach my $count (0 .. $total_lines-1) {
     if ($lines[$count] =~ m/language/i) {
@@ -265,6 +292,7 @@ sub check_as {
   }
 }
 
+# Appends the demimeter after END keyword
 sub add_end_delimiter {
   foreach my $count (0 .. $total_lines-1) {
     if ($lines[$count] =~ m/end(.*)/i) {
@@ -276,6 +304,7 @@ sub add_end_delimiter {
   }
 }
 
+# prints converted plpgsql function(barely right now) to stdout
 sub output {
   print "\n----------------\nConverted: \n----------------\n";
   foreach my $count (0 .. $total_lines-1) {
